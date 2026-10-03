@@ -1,6 +1,6 @@
-import { createElement, createStarterDocument, analyzeLayout, findElement, getBoundingBox, normalizeRotation } from './domain';
+import { createElement, createStarterDocument, analyzeLayout, findBusinessMatches, findElement, getBoundingBox, normalizeRotation } from './domain';
 import type { LayoutRepository } from './repository';
-import type { Analysis, ElementKind, LayoutDocument, LayoutMode, Notice, RenderElement, ViewPhase } from './types';
+import type { Analysis, BoothBusinessPatch, ElementKind, LayoutDocument, LayoutMode, Notice, RenderElement, ViewPhase } from './types';
 
 export interface ExpoSketchState {
   phase: ViewPhase;
@@ -12,6 +12,8 @@ export interface ExpoSketchState {
   analysis: Analysis;
   notice: Notice;
   lastSavedAt: number | null;
+  searchQuery: string;
+  searchMatches: string[];
 }
 
 const toRenderElements = (document: LayoutDocument): RenderElement[] => document.elements.map((element) => {
@@ -36,6 +38,8 @@ export class ExpoSketchViewModel {
     analysis: analyzeLayout(createStarterDocument()),
     notice: { tone: 'info', message: '正在恢复最近布局…' },
     lastSavedAt: null,
+    searchQuery: '',
+    searchMatches: [],
   };
 
   constructor(private readonly repository: LayoutRepository) {}
@@ -99,6 +103,24 @@ export class ExpoSketchViewModel {
     this.commitAndPersist({ document: { ...this.stateValue.document, elements } });
   }
 
+  updateSelectedBusiness(patch: BoothBusinessPatch) {
+    const id = this.stateValue.selectedId;
+    if (!id) return;
+    if (patch.powerLoad !== undefined && patch.powerLoad !== null && (!Number.isFinite(patch.powerLoad) || patch.powerLoad < 0)) return;
+    const elements = this.stateValue.document.elements.map((element) => element.id === id ? { ...element, ...patch } : element);
+    this.commitAndPersist({ document: { ...this.stateValue.document, elements } });
+  }
+
+  setSearchQuery(query: string) {
+    const matches = findBusinessMatches(this.stateValue.document.elements, query);
+    const notice: Notice = !query.trim()
+      ? { tone: 'info', message: '已清除展位搜索条件' }
+      : matches.length
+        ? { tone: 'info', message: `找到 ${matches.length} 个匹配展位，已在场地中高亮` }
+        : { tone: 'warning', message: '没有匹配的展位编号或展商' };
+    this.commit({ searchQuery: query, selectedId: matches[0] ?? this.stateValue.selectedId, notice });
+  }
+
   resizeField(width: number, height: number) {
     if (width < 12 || height < 10) return;
     this.commitAndPersist({ document: { ...this.stateValue.document, field: { width: Number(width.toFixed(1)), height: Number(height.toFixed(1)) } }, notice: { tone: 'success', message: '场地尺寸已更新' } });
@@ -131,7 +153,7 @@ export class ExpoSketchViewModel {
   private commit(patch: Partial<ExpoSketchState>) {
     const next = { ...this.stateValue, ...patch };
     const renderElements = toRenderElements(next.document);
-    this.stateValue = { ...next, renderElements, selectedElement: renderElements.find((element) => element.id === next.selectedId) ?? null, analysis: analyzeLayout(next.document) };
+    this.stateValue = { ...next, renderElements, selectedElement: renderElements.find((element) => element.id === next.selectedId) ?? null, analysis: analyzeLayout(next.document), searchMatches: findBusinessMatches(next.document.elements, next.searchQuery) };
     this.listeners.forEach((listener) => listener());
   }
 }

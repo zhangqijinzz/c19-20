@@ -1,5 +1,7 @@
 import type {
   Analysis,
+  BoothFilter,
+  BoothSummaryItem,
   BoundsIssue,
   ChannelIssue,
   ElementKind,
@@ -12,6 +14,7 @@ import type {
 } from './types';
 
 export const MIN_CHANNEL = 1.2;
+export const HIGH_POWER_LOAD_KW = 10;
 
 export const ELEMENT_SPECS: Record<ElementKind, ElementSpec> = {
   booth: { kind: 'booth', label: '标准展位', eyebrow: 'BOOTH', icon: '▦', color: '#e7f0ff', width: 5, height: 3.5 },
@@ -27,8 +30,8 @@ export const createStarterDocument = (): LayoutDocument => ({
   elements: [
     { id: 'entry-1', kind: 'entrance', name: '主入口', x: 1, y: 8.25, width: 2.5, height: 1.5, rotation: 0 },
     { id: 'stage-1', kind: 'stage', name: '分享舞台', x: 10, y: 1.5, width: 8, height: 4, rotation: 0 },
-    { id: 'booth-1', kind: 'booth', name: '香氛展位', x: 4, y: 2, width: 5, height: 3.5, rotation: 0 },
-    { id: 'booth-2', kind: 'booth', name: '手作展位', x: 19, y: 2, width: 5, height: 3.5, rotation: 0 },
+    { id: 'booth-1', kind: 'booth', name: '香氛展位', x: 4, y: 2, width: 5, height: 3.5, rotation: 0, exhibitor: '栀野花艺工作室', boothNumber: 'A-01', powerLoad: 3.5, contact: '林小满 138-2210-****' },
+    { id: 'booth-2', kind: 'booth', name: '手作展位', x: 19, y: 2, width: 5, height: 3.5, rotation: 0, exhibitor: '山下手作', boothNumber: 'A-02', powerLoad: 12, contact: '周野 139-8871-****' },
     { id: 'seating-1', kind: 'seating', name: '休息座席', x: 10, y: 11, width: 6, height: 3, rotation: 0 },
   ],
 });
@@ -45,6 +48,7 @@ export const createElement = (kind: ElementKind, index: number, field: FieldSize
     width: spec.width,
     height: spec.height,
     rotation: 0,
+    ...(kind === 'booth' ? { exhibitor: '', boothNumber: '', powerLoad: null, contact: '' } : {}),
   };
 };
 
@@ -124,3 +128,56 @@ export const analyzeLayout = (document: LayoutDocument): Analysis => ({
 export const findElement = (document: LayoutDocument, id: string | null) => document.elements.find((element) => element.id === id) ?? null;
 
 export const formatArea = (field: FieldSize) => `${field.width} × ${field.height} m`;
+
+const cleanText = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
+
+const cleanPowerLoad = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+
+export const normalizeElement = (element: ExpoElement): ExpoElement => ({
+  ...element,
+  exhibitor: typeof element.exhibitor === 'string' ? element.exhibitor : '',
+  boothNumber: typeof element.boothNumber === 'string' ? element.boothNumber : '',
+  contact: typeof element.contact === 'string' ? element.contact : '',
+  powerLoad: cleanPowerLoad(element.powerLoad),
+});
+
+export const normalizeDocument = (document: LayoutDocument): LayoutDocument => ({
+  ...document,
+  elements: document.elements.map(normalizeElement),
+});
+
+export const matchesBusinessQuery = (element: ExpoElement, query: string): boolean => {
+  const keyword = cleanText(query).toLowerCase();
+  if (!keyword) return false;
+  return [element.boothNumber, element.exhibitor].some((value) => cleanText(value).toLowerCase().includes(keyword));
+};
+
+export const findBusinessMatches = (elements: ExpoElement[], query: string): string[] =>
+  cleanText(query) ? elements.filter((element) => matchesBusinessQuery(element, query)).map((element) => element.id) : [];
+
+export const summarizeBooths = (elements: ExpoElement[], filter: BoothFilter): BoothSummaryItem[] => {
+  const keyword = cleanText(filter.keyword).toLowerCase();
+  return elements
+    .filter((element) => element.kind === 'booth')
+    .map((element): BoothSummaryItem => {
+      const boothNumber = cleanText(element.boothNumber);
+      const exhibitor = cleanText(element.exhibitor);
+      const contact = cleanText(element.contact);
+      const powerLoad = cleanPowerLoad(element.powerLoad);
+      const missingFields = [
+        boothNumber ? null : '编号',
+        exhibitor ? null : '展商',
+        contact ? null : '联系人',
+        powerLoad === null ? '负荷' : null,
+      ].filter((label): label is string => label !== null);
+      return { id: element.id, name: element.name, boothNumber, exhibitor, contact, powerLoad, missingFields, highLoad: powerLoad !== null && powerLoad >= HIGH_POWER_LOAD_KW };
+    })
+    .filter((item) => {
+      if (keyword && !item.boothNumber.toLowerCase().includes(keyword) && !item.exhibitor.toLowerCase().includes(keyword)) return false;
+      if (filter.minPowerLoad !== null && (item.powerLoad === null || item.powerLoad < filter.minPowerLoad)) return false;
+      if (filter.onlyMissingInfo && item.missingFields.length === 0) return false;
+      return true;
+    })
+    .sort((first, second) => (first.boothNumber ? 0 : 1) - (second.boothNumber ? 0 : 1) || first.boothNumber.localeCompare(second.boothNumber, 'zh-CN', { numeric: true }) || first.name.localeCompare(second.name, 'zh-CN'));
+};

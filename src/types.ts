@@ -11,7 +11,13 @@ export interface ExpoElement {
   width: number;
   height: number;
   rotation: number;
+  exhibitor?: string;
+  boothNumber?: string;
+  powerLoad?: number | null;
+  contact?: string;
 }
+
+export type BoothBusinessPatch = Partial<Pick<ExpoElement, 'exhibitor' | 'boothNumber' | 'powerLoad' | 'contact'>>;
 
 export interface RenderElement extends ExpoElement {
   displayWidth: number;
@@ -70,6 +76,23 @@ export interface Analysis {
   bounds: BoundsIssue[];
   channels: ChannelIssue[];
   path: PathPreview | null;
+}
+
+export interface BoothFilter {
+  keyword: string;
+  minPowerLoad: number | null;
+  onlyMissingInfo: boolean;
+}
+
+export interface BoothSummaryItem {
+  id: string;
+  name: string;
+  boothNumber: string;
+  exhibitor: string;
+  contact: string;
+  powerLoad: number | null;
+  missingFields: string[];
+  highLoad: boolean;
 }
 
 export interface Notice {

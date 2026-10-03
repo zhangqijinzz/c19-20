@@ -51,4 +51,54 @@ describe('ExpoSketchViewModel', () => {
     vm.resizeSelected(0, 0);
     expect(vm.state.document.elements[0].width).toBe(before);
   });
+
+  it('updates business fields on the selected booth and keeps empty values', async () => {
+    const vm = new ExpoSketchViewModel(fakeRepository());
+    await vm.initialize();
+    vm.selectElement('booth-1');
+    vm.updateSelectedBusiness({ exhibitor: '新展商', boothNumber: 'B-07', powerLoad: 6.5, contact: '张三' });
+    expect(vm.state.document.elements.find((element) => element.id === 'booth-1')).toMatchObject({ exhibitor: '新展商', boothNumber: 'B-07', powerLoad: 6.5, contact: '张三' });
+    vm.updateSelectedBusiness({ contact: '', powerLoad: null });
+    const booth = vm.state.document.elements.find((element) => element.id === 'booth-1');
+    expect(booth?.contact).toBe('');
+    expect(booth?.powerLoad).toBeNull();
+    expect(booth?.exhibitor).toBe('新展商');
+  });
+
+  it('rejects invalid power load values', async () => {
+    const vm = new ExpoSketchViewModel(fakeRepository());
+    await vm.initialize();
+    vm.selectElement('booth-1');
+    vm.updateSelectedBusiness({ powerLoad: -3 });
+    expect(vm.state.document.elements.find((element) => element.id === 'booth-1')?.powerLoad).toBe(3.5);
+    vm.updateSelectedBusiness({ powerLoad: Number.NaN });
+    expect(vm.state.document.elements.find((element) => element.id === 'booth-1')?.powerLoad).toBe(3.5);
+  });
+
+  it('highlights booths matching the search query and selects the first match', async () => {
+    const vm = new ExpoSketchViewModel(fakeRepository());
+    await vm.initialize();
+    vm.setSearchQuery('A-02');
+    expect(vm.state.searchMatches).toEqual(['booth-2']);
+    expect(vm.state.selectedId).toBe('booth-2');
+    vm.setSearchQuery('栀野');
+    expect(vm.state.searchMatches).toEqual(['booth-1']);
+    expect(vm.state.selectedId).toBe('booth-1');
+    vm.setSearchQuery('不存在的展商');
+    expect(vm.state.searchMatches).toEqual([]);
+    expect(vm.state.selectedId).toBe('booth-1');
+    expect(vm.state.notice.tone).toBe('warning');
+    vm.setSearchQuery('');
+    expect(vm.state.searchMatches).toEqual([]);
+  });
+
+  it('keeps search highlights in sync when business fields change', async () => {
+    const vm = new ExpoSketchViewModel(fakeRepository());
+    await vm.initialize();
+    vm.setSearchQuery('C-99');
+    expect(vm.state.searchMatches).toEqual([]);
+    vm.selectElement('booth-1');
+    vm.updateSelectedBusiness({ boothNumber: 'C-99' });
+    expect(vm.state.searchMatches).toEqual(['booth-1']);
+  });
 });
