@@ -1,6 +1,6 @@
-import { createElement, createStarterDocument, analyzeLayout, findElement, getBoundingBox, normalizeRotation } from './domain';
+import { createElement, createStarterDocument, analyzeLayout, findElement, getBoundingBox, matchesBoothQuery, normalizeBoothProfile, normalizeRotation, summarizeBooths } from './domain';
 import type { LayoutRepository } from './repository';
-import type { Analysis, ElementKind, LayoutDocument, LayoutMode, Notice, RenderElement, ViewPhase } from './types';
+import type { Analysis, BoothDigest, BoothProfile, ElementKind, LayoutDocument, LayoutMode, Notice, RenderElement, ViewPhase } from './types';
 
 export interface ExpoSketchState {
   phase: ViewPhase;
@@ -12,12 +12,29 @@ export interface ExpoSketchState {
   analysis: Analysis;
   notice: Notice;
   lastSavedAt: number | null;
+  boothQuery: string;
+  attentionOnly: boolean;
+  matchedBoothIds: string[];
+  boothDigest: BoothDigest;
 }
 
 const toRenderElements = (document: LayoutDocument): RenderElement[] => document.elements.map((element) => {
   const box = getBoundingBox(element);
-  return { ...element, displayWidth: box.width, displayHeight: box.height, occupiedArea: Number((box.width * box.height).toFixed(1)) };
+  return {
+    ...element,
+    displayWidth: box.width,
+    displayHeight: box.height,
+    occupiedArea: Number((box.width * box.height).toFixed(1)),
+    boothProfile: element.kind === 'booth' ? normalizeBoothProfile(element.booth) : null,
+  };
 });
+
+const findMatchedBoothIds = (document: LayoutDocument, query: string): string[] => {
+  if (!query.trim()) return [];
+  return document.elements
+    .filter((element) => element.kind === 'booth' && matchesBoothQuery(normalizeBoothProfile(element.booth), query))
+    .map((element) => element.id);
+};
 
 const starter = createStarterDocument();
 const starterRenderElements = toRenderElements(starter);
@@ -36,6 +53,10 @@ export class ExpoSketchViewModel {
     analysis: analyzeLayout(createStarterDocument()),
     notice: { tone: 'info', message: '正在恢复最近布局…' },
     lastSavedAt: null,
+    boothQuery: '',
+    attentionOnly: false,
+    matchedBoothIds: [],
+    boothDigest: summarizeBooths(starter),
   };
 
   constructor(private readonly repository: LayoutRepository) {}
@@ -99,6 +120,27 @@ export class ExpoSketchViewModel {
     this.commitAndPersist({ document: { ...this.stateValue.document, elements } });
   }
 
+  updateSelectedBooth(patch: Partial<BoothProfile>) {
+    const id = this.stateValue.selectedId;
+    if (!id) return;
+    const target = findElement(this.stateValue.document, id);
+    if (!target || target.kind !== 'booth') return;
+    const next: BoothProfile = { ...normalizeBoothProfile(target.booth) };
+    if (patch.exhibitor !== undefined) next.exhibitor = patch.exhibitor;
+    if (patch.boothNumber !== undefined) next.boothNumber = patch.boothNumber;
+    if (patch.contact !== undefined) next.contact = patch.contact;
+    if (patch.powerLoad !== undefined) {
+      if (patch.powerLoad === null) next.powerLoad = null;
+      else if (Number.isFinite(patch.powerLoad) && patch.powerLoad >= 0) next.powerLoad = Number(patch.powerLoad.toFixed(1));
+    }
+    const elements = this.stateValue.document.elements.map((element) => element.id === id ? { ...element, booth: next } : element);
+    this.commitAndPersist({ document: { ...this.stateValue.document, elements } });
+  }
+
+  setBoothQuery(query: string) { this.commit({ boothQuery: query }); }
+
+  setAttentionOnly(attentionOnly: boolean) { this.commit({ attentionOnly }); }
+
   resizeField(width: number, height: number) {
     if (width < 12 || height < 10) return;
     this.commitAndPersist({ document: { ...this.stateValue.document, field: { width: Number(width.toFixed(1)), height: Number(height.toFixed(1)) } }, notice: { tone: 'success', message: '场地尺寸已更新' } });
@@ -131,7 +173,14 @@ export class ExpoSketchViewModel {
   private commit(patch: Partial<ExpoSketchState>) {
     const next = { ...this.stateValue, ...patch };
     const renderElements = toRenderElements(next.document);
-    this.stateValue = { ...next, renderElements, selectedElement: renderElements.find((element) => element.id === next.selectedId) ?? null, analysis: analyzeLayout(next.document) };
+    this.stateValue = {
+      ...next,
+      renderElements,
+      selectedElement: renderElements.find((element) => element.id === next.selectedId) ?? null,
+      analysis: analyzeLayout(next.document),
+      matchedBoothIds: findMatchedBoothIds(next.document, next.boothQuery),
+      boothDigest: summarizeBooths(next.document, next.boothQuery, next.attentionOnly),
+    };
     this.listeners.forEach((listener) => listener());
   }
 }

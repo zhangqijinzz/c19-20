@@ -11,16 +11,20 @@ interface FieldCanvasProps {
   bounds: Array<{ elementId: string }>;
   channels: Array<{ firstId: string; secondId: string }>;
   path: PathPreview | null;
+  matchedIds: string[];
+  searching: boolean;
   onSelect: (id: string) => void;
   onMove: (id: string, x: number, y: number) => void;
 }
 
-export function FieldCanvas({ field, elements, selectedId, mode, overlaps, bounds, channels, path, onSelect, onMove }: FieldCanvasProps) {
+export function FieldCanvas({ field, elements, selectedId, mode, overlaps, bounds, channels, path, matchedIds, searching, onSelect, onMove }: FieldCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ id: string; dx: number; dy: number } | null>(null);
   const issueIds = new Set(overlaps.flatMap((item) => [item.firstId, item.secondId]));
   const channelIds = new Set(channels.flatMap((item) => [item.firstId, item.secondId]));
   const boundsIds = new Set(bounds.map((item) => item.elementId));
+  const matchedSet = new Set(matchedIds);
+  const dimUnmatched = searching && matchedIds.length > 0;
   const canvasWidth = 100 / Math.max(1, field.width / (field.height * 1.35));
 
   const pointFromEvent = (event: React.PointerEvent) => {
@@ -38,9 +42,9 @@ export function FieldCanvas({ field, elements, selectedId, mode, overlaps, bound
       {path && mode === 'path' ? <svg className="path-layer" viewBox={`0 0 ${field.width} ${field.height}`} preserveAspectRatio="none"><polyline points={path.points.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke="#ef795f" strokeWidth="0.3" strokeDasharray="0.75 0.55" /><circle cx={path.points[0].x} cy={path.points[0].y} r="0.45" fill="#ef795f" /><circle cx={path.points[path.points.length - 1].x} cy={path.points[path.points.length - 1].y} r="0.45" fill="#ef795f" /></svg> : null}
       {elements.map((element) => {
         const spec = ELEMENT_SPECS[element.kind];
-        const classes = ['canvas-element', selectedId === element.id ? 'is-selected' : '', issueIds.has(element.id) && mode !== 'edit' ? 'is-overlap' : '', channelIds.has(element.id) && mode !== 'edit' ? 'is-channel' : '', boundsIds.has(element.id) ? 'is-out' : ''].filter(Boolean).join(' ');
+        const classes = ['canvas-element', selectedId === element.id ? 'is-selected' : '', issueIds.has(element.id) && mode !== 'edit' ? 'is-overlap' : '', channelIds.has(element.id) && mode !== 'edit' ? 'is-channel' : '', boundsIds.has(element.id) ? 'is-out' : '', matchedSet.has(element.id) ? 'is-match' : '', dimUnmatched && !matchedSet.has(element.id) ? 'is-dimmed' : ''].filter(Boolean).join(' ');
         return <button key={element.id} type="button" className={classes} style={{ left: `${element.x / field.width * 100}%`, top: `${element.y / field.height * 100}%`, width: `${element.displayWidth / field.width * 100}%`, height: `${element.displayHeight / field.height * 100}%`, background: spec.color, transform: `rotate(${element.rotation}deg)` }} onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); const point = pointFromEvent(event); setDrag({ id: element.id, dx: point.x - element.x, dy: point.y - element.y }); onSelect(element.id); }} onPointerMove={(event) => { if (!drag || drag.id !== element.id) return; const point = pointFromEvent(event); onMove(element.id, point.x - drag.dx, point.y - drag.dy); }} onPointerUp={() => setDrag(null)} onPointerCancel={() => setDrag(null)}>
-          <span className="element-icon">{spec.icon}</span><span className="element-name">{element.name}</span><small>{element.displayWidth.toFixed(1)} × {element.displayHeight.toFixed(1)} m</small>
+          <span className="element-icon">{spec.icon}</span><span className="element-name">{element.name}</span><small>{element.boothProfile?.boothNumber.trim() ? `${element.boothProfile.boothNumber.trim()} · ` : ''}{element.displayWidth.toFixed(1)} × {element.displayHeight.toFixed(1)} m</small>
           {issueIds.has(element.id) && mode !== 'edit' ? <span className="issue-dot">!</span> : null}
         </button>;
       })}

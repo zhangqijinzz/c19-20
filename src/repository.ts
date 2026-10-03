@@ -1,4 +1,4 @@
-import { createStarterDocument } from './domain';
+import { createStarterDocument, normalizeDocument } from './domain';
 import type { DocumentStorageService } from './storageService';
 import type { ExpoElement, LayoutDocument } from './types';
 
@@ -26,7 +26,7 @@ export class LocalLayoutRepository implements LayoutRepository {
   async load(): Promise<LayoutDocument> {
     try {
       const saved = await this.storage.read();
-      return isDocument(saved) ? saved : createStarterDocument();
+      return isDocument(saved) ? normalizeDocument(saved) : createStarterDocument();
     } catch {
       return createStarterDocument();
     }

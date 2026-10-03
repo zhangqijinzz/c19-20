@@ -2,6 +2,13 @@ export type ElementKind = 'booth' | 'stage' | 'seating' | 'entrance';
 export type LayoutMode = 'edit' | 'inspect' | 'path';
 export type ViewPhase = 'loading' | 'ready' | 'error';
 
+export interface BoothProfile {
+  exhibitor: string;
+  boothNumber: string;
+  powerLoad: number | null;
+  contact: string;
+}
+
 export interface ExpoElement {
   id: string;
   kind: ElementKind;
@@ -11,12 +18,28 @@ export interface ExpoElement {
   width: number;
   height: number;
   rotation: number;
+  booth?: BoothProfile;
 }
 
 export interface RenderElement extends ExpoElement {
   displayWidth: number;
   displayHeight: number;
   occupiedArea: number;
+  boothProfile: BoothProfile | null;
+}
+
+export interface BoothSummaryEntry {
+  id: string;
+  name: string;
+  profile: BoothProfile;
+  attentionReasons: string[];
+}
+
+export interface BoothDigest {
+  total: number;
+  attentionCount: number;
+  totalPowerLoad: number;
+  entries: BoothSummaryEntry[];
 }
 
 export interface FieldSize {

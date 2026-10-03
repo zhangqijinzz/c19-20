@@ -1,5 +1,7 @@
 import type {
   Analysis,
+  BoothDigest,
+  BoothProfile,
   BoundsIssue,
   ChannelIssue,
   ElementKind,
@@ -12,6 +14,7 @@ import type {
 } from './types';
 
 export const MIN_CHANNEL = 1.2;
+export const POWER_LOAD_ALERT_KW = 10;
 
 export const ELEMENT_SPECS: Record<ElementKind, ElementSpec> = {
   booth: { kind: 'booth', label: '标准展位', eyebrow: 'BOOTH', icon: '▦', color: '#e7f0ff', width: 5, height: 3.5 },
@@ -27,11 +30,73 @@ export const createStarterDocument = (): LayoutDocument => ({
   elements: [
     { id: 'entry-1', kind: 'entrance', name: '主入口', x: 1, y: 8.25, width: 2.5, height: 1.5, rotation: 0 },
     { id: 'stage-1', kind: 'stage', name: '分享舞台', x: 10, y: 1.5, width: 8, height: 4, rotation: 0 },
-    { id: 'booth-1', kind: 'booth', name: '香氛展位', x: 4, y: 2, width: 5, height: 3.5, rotation: 0 },
-    { id: 'booth-2', kind: 'booth', name: '手作展位', x: 19, y: 2, width: 5, height: 3.5, rotation: 0 },
+    { id: 'booth-1', kind: 'booth', name: '香氛展位', x: 4, y: 2, width: 5, height: 3.5, rotation: 0, booth: { exhibitor: '屿山香氛工作室', boothNumber: 'A-01', powerLoad: 3.5, contact: '林晓 · 13800002201' } },
+    { id: 'booth-2', kind: 'booth', name: '手作展位', x: 19, y: 2, width: 5, height: 3.5, rotation: 0, booth: { exhibitor: '拾光手作社', boothNumber: 'A-02', powerLoad: null, contact: '' } },
     { id: 'seating-1', kind: 'seating', name: '休息座席', x: 10, y: 11, width: 6, height: 3, rotation: 0 },
   ],
 });
+
+export const createBoothProfile = (): BoothProfile => ({ exhibitor: '', boothNumber: '', powerLoad: null, contact: '' });
+
+const normalizePowerLoad = (value: unknown): number | null => {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+export const normalizeBoothProfile = (value: unknown): BoothProfile => {
+  if (!value || typeof value !== 'object') return createBoothProfile();
+  const record = value as Record<string, unknown>;
+  return {
+    exhibitor: typeof record.exhibitor === 'string' ? record.exhibitor : '',
+    boothNumber: typeof record.boothNumber === 'string' ? record.boothNumber : '',
+    powerLoad: normalizePowerLoad(record.powerLoad),
+    contact: typeof record.contact === 'string' ? record.contact : '',
+  };
+};
+
+export const normalizeElement = (element: ExpoElement): ExpoElement =>
+  element.kind === 'booth' ? { ...element, booth: normalizeBoothProfile(element.booth) } : element;
+
+export const normalizeDocument = (document: LayoutDocument): LayoutDocument => ({
+  ...document,
+  elements: document.elements.map(normalizeElement),
+});
+
+export const matchesBoothQuery = (profile: BoothProfile, query: string): boolean => {
+  const keyword = query.trim().toLowerCase();
+  if (!keyword) return false;
+  return profile.boothNumber.toLowerCase().includes(keyword) || profile.exhibitor.toLowerCase().includes(keyword);
+};
+
+export const getBoothAttentionReasons = (profile: BoothProfile): string[] => {
+  const reasons: string[] = [];
+  if (!profile.boothNumber.trim()) reasons.push('未编号');
+  if (!profile.exhibitor.trim()) reasons.push('缺展商');
+  if (!profile.contact.trim()) reasons.push('缺联系人');
+  if (profile.powerLoad !== null && profile.powerLoad >= POWER_LOAD_ALERT_KW) reasons.push('高负荷');
+  return reasons;
+};
+
+export const summarizeBooths = (document: LayoutDocument, query = '', attentionOnly = false): BoothDigest => {
+  const entries = document.elements
+    .filter((element) => element.kind === 'booth')
+    .map((element) => {
+      const profile = normalizeBoothProfile(element.booth);
+      return { id: element.id, name: element.name, profile, attentionReasons: getBoothAttentionReasons(profile) };
+    });
+  const filtering = query.trim().length > 0;
+  const visible = entries.filter((entry) => (!filtering || matchesBoothQuery(entry.profile, query)) && (!attentionOnly || entry.attentionReasons.length > 0));
+  return {
+    total: entries.length,
+    attentionCount: entries.filter((entry) => entry.attentionReasons.length > 0).length,
+    totalPowerLoad: Number(entries.reduce((sum, entry) => sum + (entry.profile.powerLoad ?? 0), 0).toFixed(1)),
+    entries: visible,
+  };
+};
 
 export const createElement = (kind: ElementKind, index: number, field: FieldSize): ExpoElement => {
   const spec = ELEMENT_SPECS[kind];
@@ -45,6 +110,7 @@ export const createElement = (kind: ElementKind, index: number, field: FieldSize
     width: spec.width,
     height: spec.height,
     rotation: 0,
+    ...(kind === 'booth' ? { booth: createBoothProfile() } : {}),
   };
 };
 
